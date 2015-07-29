@@ -144,6 +144,26 @@ which are created when subscriptions requires them.
 
 Example: 
 
+```javascript
+// On the target server
+Fruits = new Mongo.Collection('fruits');
+
+Meteor.publish('fruits', function () {
+  return Fruits.find();
+});
+```
+
+```javascript
+// On the proxy server
+var ddpProxy = new DDPProxy;
+var connection = ddpProxy.connect();
+
+connection.subscribe('fruits', function () { // Subscribe
+  // Results are returned in connection.collections
+  console.log(connection.collections.fruits.find().fetch());
+});
+```
+
 ### `connection.loginStatus`
 
 Example loginStatus object:
