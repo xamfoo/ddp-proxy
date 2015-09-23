@@ -1,6 +1,6 @@
 Package.describe({
   name: 'xamfoo:ddp-proxy-endpoint',
-  version: '0.1.0',
+  version: '0.2.0',
   // Brief, one-line summary of the package.
   summary: 'Server package to support xamfoo:ddp-proxy',
   // URL to the Git repository containing the source code for this package.
@@ -11,7 +11,7 @@ Package.describe({
 });
 
 function configure (api) {
-  api.versionsFrom('1.0.4.1');
+  api.versionsFrom('1.2.0.1');
   api.use(['meteor', 'ddp', 'underscore'], 'server');
 
   api.addFiles('ddp-proxy-endpoint.js', 'server');

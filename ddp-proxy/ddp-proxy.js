@@ -1,81 +1,25 @@
 var Future = Npm.require('fibers/future');
 
-var Connection;
-var SUPPORTED_DDP_VERSIONS;
-
 // Get Connection constructor and supported DDP versions
-(function () {
+var Connection = (function () {
   var connection = DDP.connect(Meteor.absoluteUrl());
   connection.close();
-  Connection = connection.constructor;
-
-  var versions = connection._supportedDDPVersions;
-  if (!versions) throw new Meteor.Error('Unable to get DDP versions');
-
-  SUPPORTED_DDP_VERSIONS = versions.indexOf('ddproxy') >= 0 ?
-    versions : versions.concat('ddpproxy');
+  return connection.constructor;
 }());
 
-// Excerpt from https://github.com/meteor/meteor/blob/release-1.0.5/packages/ddp/livedata_common.js
-// {{{
-var parseDDP = function (stringMessage) {
-  try {
-    var msg = JSON.parse(stringMessage);
-  } catch (e) {
-    Meteor._debug("Discarding message with invalid JSON", stringMessage);
-    return null;
-  }
-  // DDP messages must be objects.
-  if (msg === null || typeof msg !== 'object') {
-    Meteor._debug("Discarding non-object DDP message", stringMessage);
-    return null;
-  }
-
-  // massage msg to get it into "abstract ddp" rather than "wire ddp" format.
-
-  // switch between "cleared" rep of unsetting fields and "undefined"
-  // rep of same
-  if (_.has(msg, 'cleared')) {
-    if (!_.has(msg, 'fields'))
-      msg.fields = {};
-    _.each(msg.cleared, function (clearKey) {
-      msg.fields[clearKey] = undefined;
-    });
-    delete msg.cleared;
-  }
-
-  _.each(['fields', 'params', 'result'], function (field) {
-    if (_.has(msg, field))
-      msg[field] = EJSON._adjustTypesFromJSONValue(msg[field]);
-  });
-
-  return msg;
-};
-// }}}
+var parseDDP = DDPCommon.parseDDP;
 
 // Callback for automatic creation of new mongo collections when data is
 // received
 var onData = function (conn, raw_msg) {
-  // Excerpt from https://github.com/meteor/meteor/blob/release-1.0.5/packages/ddp/livedata_connection.js
-  // {{{
+  var msg;
+
   try {
-    var msg = parseDDP(raw_msg);
+    msg = DDPCommon.parseDDP(raw_msg);
   } catch (e) {
-    Meteor._debug("Exception while parsing DDP", e);
     return;
   }
-
-  if (msg === null || !msg.msg) {
-    // XXX COMPAT WITH 0.6.6. ignore the old welcome message for back
-    // compat.  Remove this 'if' once the server stops sending welcome
-    // messages (stream_server.js).
-    if (! (msg && msg.server_id))
-      Meteor._debug("discarding invalid livedata message", msg);
-    return;
-  }
-  // }}}
-
-  if (!msg.collection) return;
+  if (!msg || !msg.msg || !msg.collection) return;
 
   conn.collections[msg.collection] =
     conn.collections[msg.collection] ||
@@ -83,12 +27,53 @@ var onData = function (conn, raw_msg) {
 };
 
 /**
+ * Extends the DDP connection class.
+ */
+var ProxyConnection = (function (_Connection) {
+  function ProxyConnection () {
+    var self = this;
+    _Connection.apply(self, arguments);
+
+    self.collections = self.collections || {};
+    self._onClose = [];
+    self._stream.on(
+      'message',
+      Meteor.bindEnvironment(_.partial(onData, self), Meteor._debug)
+    );
+  }
+  ProxyConnection.prototype = Object.create(_Connection.prototype, {
+    constructor: {
+      value: ProxyConnection,
+      enumerable: false,
+      writable: true,
+      configurable: true
+    }
+  });
+  if (Object.setPrototypeOf) Object.setPrototype(ProxyConnection, _Connection);
+  else ProxyConnection.__proto__ = _Connection;
+
+  ProxyConnection.prototype.close = function close () {
+    var self = this;
+    _Connection.prototype.close.apply(self, arguments);
+    while (self._onClose.length) { self._onClose.pop()(); }
+  };
+
+  ProxyConnection.prototype.onClose = function onClose (func) {
+    if (typeof func !== 'function')
+      throw new Error('Argument must be a function');
+    this._onClose.push(func);
+  };
+
+  return ProxyConnection;
+}(Connection));
+
+/**
  * DDPProxy class
  *
  * @param {object} options - Configuration object. Refer to configure()
- * @param {Mongo.Collection} options.collection[=localCollection] - Mongo
- *   collection used to store connection data. If not specified, connection
- *   info will be stored in memory.
+ * @param {Mongo.Collection} options.collection[=localCollection] -
+ *   Mongo collection used to store connection data. If not specified,
+ *   connection info will be stored in memory.
  */
 DDPProxy = function DDPProxy (opt) {
   var self = this;
@@ -108,9 +93,12 @@ DDPProxy = function DDPProxy (opt) {
 };
 
 _.extend(DDPProxy.prototype, {
-  _addConnection: function (url, sessionId, loginOptions) {
+  _addConnection: function (opt) {
     var self = this;
-
+    opt = opt || {};
+    var url = opt.url;
+    var sessionId = opt.sessionId;
+    var loginOptions = opt.login;
     var connectFuture = new Future();
     var loginFuture = new Future();
     var connectionTimeout;
@@ -120,7 +108,9 @@ _.extend(DDPProxy.prototype, {
     }, connectFuture);
     var ddpOption = _.extend({}, self._config.ddpConnection, {
       onConnected: onConnected,
-      supportedDDPVersions: SUPPORTED_DDP_VERSIONS
+      supportedDDPVersions: !opt.autoPublish ?
+        DDPCommon.SUPPORTED_DDP_VERSIONS.concat('ddpproxy') :
+        DDPCommon.SUPPORTED_DDP_VERSIONS
     });
     if (self._config.ddpConnection.onConnected) {
       ddpOption.onConnected = _.partial(function (fn) {
@@ -130,19 +120,11 @@ _.extend(DDPProxy.prototype, {
     }
     var insertId;
 
-    // Use new Connection instead of DDP.connect to prevent connection being
-    // added and accumulated in allConnections
-    var connection = new Connection(url, ddpOption);
-
-    connection.collections = connection.collections || {};
-
-    connection.close = (function (close) {
-      return function () {
-        close.apply(this, arguments);
-        delete self._connections[insertId];
-        self._cln.remove({_id: insertId});
-      }
-    }(connection.close));
+    var connection = new ProxyConnection(url, ddpOption);
+    connection.onClose(function () {
+      delete self._connections[insertId];
+      self._cln.remove({_id: insertId});
+    });
 
     connectionTimeout = Meteor.setTimeout(function () {
       connection.close();
@@ -150,11 +132,6 @@ _.extend(DDPProxy.prototype, {
         new Error('Connection timeout')
       );
     }, self._config.connectionTimeout * 1000);
-
-    connection._stream.on(
-      'message',
-      Meteor.bindEnvironment(_.partial(onData, connection), Meteor._debug)
-    );
 
     var doc = {
       url: url,
@@ -258,22 +235,26 @@ _.extend(DDPProxy.prototype, {
    * Configure options
    *
    * @param {object} options
-   * @param {string} options.url - Default url for connection if not specified.
+   * @param {string} options.url -
+   *   Default url for connection if not specified.
    *   Set to Meteor.absoluteUrl() if not specified.
-   * @param {number} options.connectionExpire[=900] - Time(seconds) before a
-   *   non-session connection expires. Default is 15 minutes.
-   * @param {number} options.connectionTimeout[=10] - Time(seconds) before a
-   *   connection attempt timeouts. Default is 10 seconds.
-   * @param {number} options.sessionExpire[=900] - Time(seconds) before a
-   *   connection with a session id expires. Default is 15 minutes.
-   * @param {number} options.sessionExpireOnResume[=900] - The new expiry
-   *   time(seconds) to set on the connection when a session is resumed. Default
-   *   is 15 minutes.
-   * @param {number} options.expireInterval[=120] - Time interval to expire
-   *   connections.
-   * @param {function} options.isValidSession - A function for checking
-   *   if a DDP proxy session id is valid. By default it is a function that
-   *   always return true.
+   * @param {number} options.connectionExpire[=900] -
+   *   Time(seconds) before a non-session connection expires. Default is 15
+   *   minutes.
+   * @param {number} options.connectionTimeout[=10] -
+   *   Time(seconds) before a connection attempt timeouts. Default is 10
+   *   seconds.
+   * @param {number} options.sessionExpire[=900] -
+   *   Time(seconds) before a connection with a session id expires. Default is
+   *   15 minutes.
+   * @param {number} options.sessionExpireOnResume[=900] -
+   *   The new expiry time(seconds) to set on the connection when a session is
+   *   resumed. Default is 15 minutes.
+   * @param {number} options.expireInterval[=120] -
+   *   Time interval to expire connections.
+   * @param {function} options.isValidSession -
+   *   A function for checking if a DDP proxy session id is valid. By default
+   *   it is a function that always return true.
    */
   configure: function (options) {
     // Don't handle if options is not an object
@@ -300,14 +281,18 @@ _.extend(DDPProxy.prototype, {
   },
 
   /**
-   * Returns a DDP connection given the url of the server and login options
+   * Creates a DDP ProxyConnection to the given server url and login options
    *
    * @param {object} options
    * @param {string} [options.url] - The connection url
-   * @param {*} [options.sessionId] - Session id which is used to resume this
-   *   connection. A session id must be a string or a serializable object.
+   * @param {*} [options.sessionId] -
+   *   Session id which is used to resume this connection. A session id must be
+   *   a string or a serializable object.
    * @param {object} [options.login] - Login options for Meteor
    * @param {object} [options.login.resume] - Resume token for Meteor login
+   * @param {boolean} options.autoPublish[=false] -
+   *   If autoPublish is set to true, the connection will subscribe to
+   *   autopublished data.
    */
   connect: function (opt) {
     var self = this;
@@ -330,7 +315,7 @@ _.extend(DDPProxy.prototype, {
     }
 
     // Create new connection
-    return self._addConnection(opt.url, opt.sessionId, opt.login);
+    return self._addConnection(opt);
   },
 
   /**
