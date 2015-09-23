@@ -1,9 +1,6 @@
 var Future = Npm.require('fibers/future');
 
-var Connection;
-var SUPPORTED_DDP_VERSIONS =
-  DDPCommon.SUPPORTED_DDP_VERSIONS.concat('ddpproxy');
-var parseDDP = DDPCommon.parseDDP;
+var Connection, SUPPORTED_DDP_VERSIONS, parseDDP;
 
 // Get Connection constructor and supported DDP versions
 (function () {
@@ -11,6 +8,10 @@ var parseDDP = DDPCommon.parseDDP;
   connection.close();
   Connection = connection.constructor;
 }());
+
+SUPPORTED_DDP_VERSIONS = DDPCommon.SUPPORTED_DDP_VERSIONS.concat('ddpproxy');
+
+parseDDP = DDPCommon.parseDDP;
 
 // Callback for automatic creation of new mongo collections when data is
 // received
@@ -28,6 +29,47 @@ var onData = function (conn, raw_msg) {
     conn.collections[msg.collection] ||
     new Mongo.Collection(msg.collection, {connection: conn});
 };
+
+/**
+ * Extends the DDP connection class.
+ */
+var ProxyConnection = (function (_Connection) {
+  function ProxyConnection () {
+    var self = this;
+    _Connection.apply(self, arguments);
+
+    self.collections = self.collections || {};
+    self._onClose = [];
+    self._stream.on(
+      'message',
+      Meteor.bindEnvironment(_.partial(onData, self), Meteor._debug)
+    );
+  }
+  ProxyConnection.prototype = Object.create(_Connection.prototype, {
+    constructor: {
+      value: ProxyConnection,
+      enumerable: false,
+      writable: true,
+      configurable: true
+    }
+  });
+  if (Object.setPrototypeOf) Object.setPrototype(ProxyConnection, _Connection);
+  else ProxyConnection.__proto__ = _Connection;
+
+  ProxyConnection.prototype.close = function close () {
+    var self = this;
+    _Connection.prototype.close.apply(self, arguments);
+    while (self._onClose.length) { self._onClose.pop()(); }
+  };
+
+  ProxyConnection.prototype.onClose = function onClose (func) {
+    if (typeof func !== 'function')
+      throw new Error('Argument must be a function');
+    this._onClose.push(func);
+  };
+
+  return ProxyConnection;
+}(Connection));
 
 /**
  * DDPProxy class
@@ -77,19 +119,11 @@ _.extend(DDPProxy.prototype, {
     }
     var insertId;
 
-    // Use new Connection instead of DDP.connect to prevent connection being
-    // added and accumulated in allConnections
-    var connection = new Connection(url, ddpOption);
-
-    connection.collections = connection.collections || {};
-
-    connection.close = (function (close) {
-      return function () {
-        close.apply(this, arguments);
-        delete self._connections[insertId];
-        self._cln.remove({_id: insertId});
-      }
-    }(connection.close));
+    var connection = new ProxyConnection(url, ddpOption);
+    connection.onClose(function () {
+      delete self._connections[insertId];
+      self._cln.remove({_id: insertId});
+    });
 
     connectionTimeout = Meteor.setTimeout(function () {
       connection.close();
@@ -97,11 +131,6 @@ _.extend(DDPProxy.prototype, {
         new Error('Connection timeout')
       );
     }, self._config.connectionTimeout * 1000);
-
-    connection._stream.on(
-      'message',
-      Meteor.bindEnvironment(_.partial(onData, connection), Meteor._debug)
-    );
 
     var doc = {
       url: url,
