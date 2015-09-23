@@ -78,6 +78,33 @@ Tinytest.add(
   }
 );
 
+Tinytest.add(
+  'No ddpproxy support in connection request when autopublish option is true',
+  function (test) {
+    var proxy = new DDPProxy;
+    var testCount = 0;
+    var listener = Meteor.bindEnvironment(function (raw_msg) {
+      try {
+        raw_msg = JSON.parse(raw_msg);
+        if (raw_msg && raw_msg.msg === 'connect') {
+          test.equal(
+            raw_msg.support && !(raw_msg.support.indexOf('ddpproxy') >= 0),
+            true
+          );
+          testCount += 1;
+        }
+      }
+      catch (e) {}
+    });
+    DDPServer.addListener(listener);
+    var connection = proxy.connect({autoPublish: true});
+    test.equal(testCount > 0, true);
+    DDPServer.removeListener(listener);
+
+    proxy.stop();
+  }
+);
+
 Tinytest.add('New connection', function (test) {
   var proxy = new DDPProxy();
   var connection = proxy.connect();

@@ -1,17 +1,13 @@
 var Future = Npm.require('fibers/future');
 
-var Connection, SUPPORTED_DDP_VERSIONS, parseDDP;
-
 // Get Connection constructor and supported DDP versions
-(function () {
+var Connection = (function () {
   var connection = DDP.connect(Meteor.absoluteUrl());
   connection.close();
-  Connection = connection.constructor;
+  return connection.constructor;
 }());
 
-SUPPORTED_DDP_VERSIONS = DDPCommon.SUPPORTED_DDP_VERSIONS.concat('ddpproxy');
-
-parseDDP = DDPCommon.parseDDP;
+var parseDDP = DDPCommon.parseDDP;
 
 // Callback for automatic creation of new mongo collections when data is
 // received
@@ -75,9 +71,9 @@ var ProxyConnection = (function (_Connection) {
  * DDPProxy class
  *
  * @param {object} options - Configuration object. Refer to configure()
- * @param {Mongo.Collection} options.collection[=localCollection] - Mongo
- *   collection used to store connection data. If not specified, connection
- *   info will be stored in memory.
+ * @param {Mongo.Collection} options.collection[=localCollection] -
+ *   Mongo collection used to store connection data. If not specified,
+ *   connection info will be stored in memory.
  */
 DDPProxy = function DDPProxy (opt) {
   var self = this;
@@ -97,9 +93,12 @@ DDPProxy = function DDPProxy (opt) {
 };
 
 _.extend(DDPProxy.prototype, {
-  _addConnection: function (url, sessionId, loginOptions) {
+  _addConnection: function (opt) {
     var self = this;
-
+    opt = opt || {};
+    var url = opt.url;
+    var sessionId = opt.sessionId;
+    var loginOptions = opt.login;
     var connectFuture = new Future();
     var loginFuture = new Future();
     var connectionTimeout;
@@ -109,7 +108,9 @@ _.extend(DDPProxy.prototype, {
     }, connectFuture);
     var ddpOption = _.extend({}, self._config.ddpConnection, {
       onConnected: onConnected,
-      supportedDDPVersions: SUPPORTED_DDP_VERSIONS
+      supportedDDPVersions: !opt.autoPublish ?
+        DDPCommon.SUPPORTED_DDP_VERSIONS.concat('ddpproxy') :
+        DDPCommon.SUPPORTED_DDP_VERSIONS
     });
     if (self._config.ddpConnection.onConnected) {
       ddpOption.onConnected = _.partial(function (fn) {
@@ -280,7 +281,7 @@ _.extend(DDPProxy.prototype, {
   },
 
   /**
-   * Returns a DDP connection given the url of the server and login options
+   * Creates a DDP ProxyConnection to the given server url and login options
    *
    * @param {object} options
    * @param {string} [options.url] - The connection url
@@ -289,6 +290,9 @@ _.extend(DDPProxy.prototype, {
    *   a string or a serializable object.
    * @param {object} [options.login] - Login options for Meteor
    * @param {object} [options.login.resume] - Resume token for Meteor login
+   * @param {boolean} options.autoPublish[=false] -
+   *   If autoPublish is set to true, the connection will subscribe to
+   *   autopublished data.
    */
   connect: function (opt) {
     var self = this;
@@ -311,7 +315,7 @@ _.extend(DDPProxy.prototype, {
     }
 
     // Create new connection
-    return self._addConnection(opt.url, opt.sessionId, opt.login);
+    return self._addConnection(opt);
   },
 
   /**
