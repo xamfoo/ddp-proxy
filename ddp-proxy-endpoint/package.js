@@ -11,7 +11,7 @@ Package.describe({
 });
 
 function configure (api) {
-  api.versionsFrom('1.0.4.1');
+  api.versionsFrom('1.2.0.1');
   api.use(['meteor', 'ddp', 'underscore'], 'server');
 
   api.addFiles('ddp-proxy-endpoint.js', 'server');
