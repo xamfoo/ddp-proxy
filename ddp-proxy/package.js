@@ -11,19 +11,22 @@ Package.describe({
 });
 
 Package.onUse(function(api) {
-  api.versionsFrom('1.1.0.2');
+  api.versionsFrom('1.2.0.1');
   api.use([
     'meteor',
     'ejson',
     'ddp',
+    'ddp-common',
     'underscore',
     'mongo',
+    'random'
   ], 'server');
   api.addFiles(['ddp-proxy.js'], 'server');
   api.export('DDPProxy', 'server');
 });
 
 Package.onTest(function(api) {
+  api.versionsFrom('1.2.0.1');
   api.use([
     'tinytest',
     'mongo',

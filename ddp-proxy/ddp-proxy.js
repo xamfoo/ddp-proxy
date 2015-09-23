@@ -1,81 +1,28 @@
 var Future = Npm.require('fibers/future');
 
 var Connection;
-var SUPPORTED_DDP_VERSIONS;
+var SUPPORTED_DDP_VERSIONS =
+  DDPCommon.SUPPORTED_DDP_VERSIONS.concat('ddpproxy');
+var parseDDP = DDPCommon.parseDDP;
 
 // Get Connection constructor and supported DDP versions
 (function () {
   var connection = DDP.connect(Meteor.absoluteUrl());
   connection.close();
   Connection = connection.constructor;
-
-  var versions = connection._supportedDDPVersions;
-  if (!versions) throw new Meteor.Error('Unable to get DDP versions');
-
-  SUPPORTED_DDP_VERSIONS = versions.indexOf('ddproxy') >= 0 ?
-    versions : versions.concat('ddpproxy');
 }());
-
-// Excerpt from https://github.com/meteor/meteor/blob/release-1.0.5/packages/ddp/livedata_common.js
-// {{{
-var parseDDP = function (stringMessage) {
-  try {
-    var msg = JSON.parse(stringMessage);
-  } catch (e) {
-    Meteor._debug("Discarding message with invalid JSON", stringMessage);
-    return null;
-  }
-  // DDP messages must be objects.
-  if (msg === null || typeof msg !== 'object') {
-    Meteor._debug("Discarding non-object DDP message", stringMessage);
-    return null;
-  }
-
-  // massage msg to get it into "abstract ddp" rather than "wire ddp" format.
-
-  // switch between "cleared" rep of unsetting fields and "undefined"
-  // rep of same
-  if (_.has(msg, 'cleared')) {
-    if (!_.has(msg, 'fields'))
-      msg.fields = {};
-    _.each(msg.cleared, function (clearKey) {
-      msg.fields[clearKey] = undefined;
-    });
-    delete msg.cleared;
-  }
-
-  _.each(['fields', 'params', 'result'], function (field) {
-    if (_.has(msg, field))
-      msg[field] = EJSON._adjustTypesFromJSONValue(msg[field]);
-  });
-
-  return msg;
-};
-// }}}
 
 // Callback for automatic creation of new mongo collections when data is
 // received
 var onData = function (conn, raw_msg) {
-  // Excerpt from https://github.com/meteor/meteor/blob/release-1.0.5/packages/ddp/livedata_connection.js
-  // {{{
+  var msg;
+
   try {
-    var msg = parseDDP(raw_msg);
+    msg = DDPCommon.parseDDP(raw_msg);
   } catch (e) {
-    Meteor._debug("Exception while parsing DDP", e);
     return;
   }
-
-  if (msg === null || !msg.msg) {
-    // XXX COMPAT WITH 0.6.6. ignore the old welcome message for back
-    // compat.  Remove this 'if' once the server stops sending welcome
-    // messages (stream_server.js).
-    if (! (msg && msg.server_id))
-      Meteor._debug("discarding invalid livedata message", msg);
-    return;
-  }
-  // }}}
-
-  if (!msg.collection) return;
+  if (!msg || !msg.msg || !msg.collection) return;
 
   conn.collections[msg.collection] =
     conn.collections[msg.collection] ||
