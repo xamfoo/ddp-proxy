@@ -234,22 +234,26 @@ _.extend(DDPProxy.prototype, {
    * Configure options
    *
    * @param {object} options
-   * @param {string} options.url - Default url for connection if not specified.
+   * @param {string} options.url -
+   *   Default url for connection if not specified.
    *   Set to Meteor.absoluteUrl() if not specified.
-   * @param {number} options.connectionExpire[=900] - Time(seconds) before a
-   *   non-session connection expires. Default is 15 minutes.
-   * @param {number} options.connectionTimeout[=10] - Time(seconds) before a
-   *   connection attempt timeouts. Default is 10 seconds.
-   * @param {number} options.sessionExpire[=900] - Time(seconds) before a
-   *   connection with a session id expires. Default is 15 minutes.
-   * @param {number} options.sessionExpireOnResume[=900] - The new expiry
-   *   time(seconds) to set on the connection when a session is resumed. Default
-   *   is 15 minutes.
-   * @param {number} options.expireInterval[=120] - Time interval to expire
-   *   connections.
-   * @param {function} options.isValidSession - A function for checking
-   *   if a DDP proxy session id is valid. By default it is a function that
-   *   always return true.
+   * @param {number} options.connectionExpire[=900] -
+   *   Time(seconds) before a non-session connection expires. Default is 15
+   *   minutes.
+   * @param {number} options.connectionTimeout[=10] -
+   *   Time(seconds) before a connection attempt timeouts. Default is 10
+   *   seconds.
+   * @param {number} options.sessionExpire[=900] -
+   *   Time(seconds) before a connection with a session id expires. Default is
+   *   15 minutes.
+   * @param {number} options.sessionExpireOnResume[=900] -
+   *   The new expiry time(seconds) to set on the connection when a session is
+   *   resumed. Default is 15 minutes.
+   * @param {number} options.expireInterval[=120] -
+   *   Time interval to expire connections.
+   * @param {function} options.isValidSession -
+   *   A function for checking if a DDP proxy session id is valid. By default
+   *   it is a function that always return true.
    */
   configure: function (options) {
     // Don't handle if options is not an object
@@ -280,8 +284,9 @@ _.extend(DDPProxy.prototype, {
    *
    * @param {object} options
    * @param {string} [options.url] - The connection url
-   * @param {*} [options.sessionId] - Session id which is used to resume this
-   *   connection. A session id must be a string or a serializable object.
+   * @param {*} [options.sessionId] -
+   *   Session id which is used to resume this connection. A session id must be
+   *   a string or a serializable object.
    * @param {object} [options.login] - Login options for Meteor
    * @param {object} [options.login.resume] - Resume token for Meteor login
    */
