@@ -1,7 +1,7 @@
 # ddp-proxy
 
-This Meteor server package manages multiple server DDP connections and
-provides a few features on top of the standard `DDP.connect()`.
+Manage multiple Meteor server to server DDP connections and provides a few
+features on top of the standard `DDP.connect()`.
 
 ## Features
 
@@ -55,14 +55,18 @@ connection.subscribe('fruits', function () { // Subscribe
 
 DDPProxy class
 
+Parameters:
+
 - {object} options - Configuration object. Refer to configure()
-- {Mongo.Collection} options.collection[=localCollection] - Mongo
-  collection used to store connection data. If not specified, connection
+- {Mongo.Collection} options.collection[=localCollection] -
+  Mongo collection used to store connection data. If not specified, connection
   info will be stored in memory.
 
 ### `ddpProxy.configure([options])`
 
 Configure options
+
+Parameters:
 
 - {object} options
 - {string} options.url - Default url for connection if not specified.
@@ -84,7 +88,9 @@ Configure options
 
 ### `ddpProxy.connect([options])`
 
-Returns a DDP connection given the url of the server and login options
+Creates a DDP `proxyConnection` to the given server url and login options
+
+Parameters:
 
 - {object} options
 - {string} [options.url] - The connection url
@@ -92,6 +98,8 @@ Returns a DDP connection given the url of the server and login options
   connection. A session id must be a string or a serializable object.
 - {object} [options.login] - Login options for Meteor
 - {object} [options.login.resume] - Resume token for Meteor login
+- {boolean} options.autoPublish[=false] - If autoPublish is set to true, the
+  connection will subscribe to autopublished data.
 
 Example login with password:
 
@@ -137,12 +145,12 @@ Stop monitoring connections expiry
 
 Close all connections and stop monitoring
 
-### `connection.collections`
+### `proxyConnection.collections`
 
 An object which contains (collection name, Mongo.Collection) key value pairs
 which are created when subscriptions requires them.
 
-Example: 
+Example:
 
 ```javascript
 // On the target server
@@ -164,7 +172,7 @@ connection.subscribe('fruits', function () { // Subscribe
 });
 ```
 
-### `connection.loginStatus`
+### `proxyConnection.loginStatus`
 
 Example loginStatus object:
 ```javascript
