@@ -7,25 +7,6 @@ var Connection = (function () {
   return connection.constructor;
 }());
 
-var parseDDP = DDPCommon.parseDDP;
-
-// Callback for automatic creation of new mongo collections when data is
-// received
-var onData = function (conn, raw_msg) {
-  var msg;
-
-  try {
-    msg = DDPCommon.parseDDP(raw_msg);
-  } catch (e) {
-    return;
-  }
-  if (!msg || !msg.msg || !msg.collection) return;
-
-  conn.collections[msg.collection] =
-    conn.collections[msg.collection] ||
-    new Mongo.Collection(msg.collection, {connection: conn});
-};
-
 /**
  * Extends the DDP connection class.
  */
@@ -38,7 +19,7 @@ var ProxyConnection = (function (_Connection) {
     self._onClose = [];
     self._stream.on(
       'message',
-      Meteor.bindEnvironment(_.partial(onData, self), Meteor._debug)
+      Meteor.bindEnvironment(self._onData.bind(self), Meteor._debug)
     );
   }
   ProxyConnection.prototype = Object.create(_Connection.prototype, {
@@ -52,12 +33,36 @@ var ProxyConnection = (function (_Connection) {
   if (Object.setPrototypeOf) Object.setPrototype(ProxyConnection, _Connection);
   else ProxyConnection.__proto__ = _Connection;
 
+  // Callback for automatic creation of new mongo collections when data is
+  // received
+  ProxyConnection.prototype._onData = function (raw_msg) {
+    var self = this;
+    var msg;
+
+    try {
+      msg = DDPCommon.parseDDP(raw_msg);
+    } catch (e) {
+      return;
+    }
+    if (!msg || !msg.msg || !msg.collection) return;
+
+    self.collections[msg.collection] =
+      self.collections[msg.collection] ||
+      new Mongo.Collection(msg.collection, {connection: self});
+  };
+
+  /**
+   * Apply callbacks when connection is closed
+   */
   ProxyConnection.prototype.close = function close () {
     var self = this;
     _Connection.prototype.close.apply(self, arguments);
     while (self._onClose.length) { self._onClose.pop()(); }
   };
 
+  /**
+   * Add a function callback when the connection is closed
+   */
   ProxyConnection.prototype.onClose = function onClose (func) {
     if (typeof func !== 'function')
       throw new Error('Argument must be a function');
@@ -68,7 +73,7 @@ var ProxyConnection = (function (_Connection) {
 }(Connection));
 
 /**
- * DDPProxy class
+ * DDPProxy class objects manages multiple DDP connections to a server
  *
  * @param {object} options - Configuration object. Refer to configure()
  * @param {Mongo.Collection} options.collection[=localCollection] -
